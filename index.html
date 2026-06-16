@@ -238,6 +238,27 @@ body{margin:0;}
 .review-item-btn .dot{margin-top:6px;}
 .review-item-text{flex:1;}
 .review-arrow{margin-left:auto;color:var(--ink-soft);font-weight:700;align-self:center;}
+.btn-zone.zone-rules{border-left-color:var(--amber);}
+.btn-zone.zone-rules:hover{background:#FBF6EC;}
+.zone-rules .zone-meta{color:var(--amber);}
+.rule-group{margin:0 0 22px;}
+.rule-group-head{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 10px;padding-bottom:6px;border-bottom:1.5px solid #E7E2D6;}
+.rule-card{position:relative;background:#fff;border:1px solid #E7E2D6;border-radius:4px;padding:13px 15px;margin-bottom:8px;}
+.rule-card.rule-err{border-color:#EAC9C6;background:var(--red-soft);}
+.rule-ex{font-family:'Spectral',serif;font-style:italic;font-size:15px;color:var(--ink-soft);line-height:1.4;margin:0 0 6px;}
+.rule-text{font-size:14px;line-height:1.55;color:var(--ink);margin:0;}
+.rule-badge{display:inline-block;margin-top:8px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--red);background:#fff;border:1px solid #EAC9C6;padding:2px 8px;border-radius:99px;}
+.dictee-actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:12px;}
+.dictee-actions .btn-check{margin-top:0;}
+.btn-skip{background:none;border:none;color:var(--ink-soft);font-size:13px;font-weight:600;text-decoration:underline;padding:6px 2px;}
+.btn-skip:hover{color:var(--blue);}
+.toggle-audio{border:1.5px solid #D8D2C4;background:#fff;border-radius:99px;padding:6px 14px;font-size:13px;font-weight:600;color:var(--ink-soft);}
+.toggle-audio:hover{border-color:var(--blue);color:var(--blue);}
+.toggle-audio.toggle-on{background:var(--ink);border-color:var(--ink);color:#fff;}
+.rule-sub{font-family:'Spectral',serif;font-size:16px;font-weight:700;color:var(--ink);margin:0 0 6px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.rule-tag{font-family:'Inter',sans-serif;font-size:11px;font-weight:600;color:var(--ink-soft);background:#F0ECE0;padding:2px 8px;border-radius:99px;letter-spacing:.02em;}
+.rule-ex-list{margin:8px 0 0;padding-left:18px;}
+.rule-ex-list li{font-family:'Spectral',serif;font-size:14px;color:var(--ink-soft);line-height:1.5;}
 @keyframes rise{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important;}}
 @media (max-width:430px){
@@ -568,7 +589,7 @@ function App() {
   }, []);
 
   function emptyStats() { return { streak: 0, lastSessionDate: null, totalAnswered: 0, totalCorrect: 0, sessions: 0 }; }
-  function fresh() { return { items: {}, stats: emptyStats(), settings: { length: DEFAULT_LENGTH } }; }
+  function fresh() { return { items: {}, stats: emptyStats(), settings: { length: DEFAULT_LENGTH, noAudio: false } }; }
   function migrateItem(it) {
     if (it && it.streak === undefined) { const b = it.box || 1; return Object.assign({}, it, { streak: b >= 5 ? MASTER_STREAK : Math.max(0, b - 1) }); }
     return it;
@@ -576,7 +597,7 @@ function App() {
   function withDefaults(d) {
     const raw = d.items || {}, items = {};
     Object.keys(raw).forEach((k) => { items[k] = migrateItem(raw[k]); });
-    return { items, stats: Object.assign({}, emptyStats(), d.stats || {}), settings: Object.assign({ length: DEFAULT_LENGTH }, d.settings || {}) };
+    return { items, stats: Object.assign({}, emptyStats(), d.stats || {}), settings: Object.assign({ length: DEFAULT_LENGTH, noAudio: false }, d.settings || {}) };
   }
   async function save(next) { setProgress(next); try { await storage.set("progress", JSON.stringify(next)); } catch (e) {} }
 
@@ -596,6 +617,15 @@ function App() {
     return { mastered, reviewable, seen, total: BANK.length, perCat };
   }
 
+  function isErrorItem(it) { return !!it && (it.timesWrong || 0) > 0 && (it.streak || 0) < MASTER_STREAK; }
+  function errorItems() {
+    const items = (progress && progress.items) || {};
+    const out = [];
+    BANK.forEach((q) => { if (isErrorItem(items[q.id])) out.push(q); });
+    genTenseItems(VERBS).forEach((q) => { if (isErrorItem(items[q.id])) out.push(q); });
+    return out;
+  }
+
   function conjStats() {
     const items = (progress && progress.items) || {};
     const perVerb = {}; let reviewable = 0, mastered = 0, total = 0;
@@ -608,7 +638,7 @@ function App() {
       if (id.slice(0, 3) !== "vt:") return;
       const it = items[id], inf = id.split(":")[1];
       const m = (it.streak || 0) >= MASTER_STREAK;
-      if (!m) reviewable++;
+      if ((it.timesWrong || 0) > 0 && !m) reviewable++;
       if (m) { mastered++; if (perVerb[inf]) perVerb[inf].mastered++; }
     });
     return { reviewable, mastered, total, perVerb };
@@ -648,7 +678,8 @@ function App() {
   function start(opts) {
     opts = opts || {};
     const focusCat = opts.focusCat != null ? opts.focusCat : focus;
-    const pool = BANK.filter((q) => focusCat === "all" || q.cat === focusCat);
+    const noAudio = !!(progress.settings && progress.settings.noAudio);
+    const pool = BANK.filter((q) => (focusCat === "all" || q.cat === focusCat) && (!noAudio || q.type !== "dictee"));
     launchSession(selectSR(pool, opts.mode || "normal"), { kind: "bank", focusCat, mode: opts.mode || "normal", returnScreen: opts.returnScreen || "home" });
   }
   function startItems(its, returnScreen) { launchSession(shuffle(its), { kind: "items", items: its, returnScreen: returnScreen || "home" }); }
@@ -658,9 +689,8 @@ function App() {
   }
   function startWeakTables() {
     const items = (progress && progress.items) || {}, today = todayStr();
-    const weak = genTenseItems(VERBS).filter((q) => { const p = items[q.id]; return p && (p.streak || 0) < MASTER_STREAK; })
-      .sort((a, b) => { const pa = items[a.id], pb = items[b.id]; const da = pa.dueDate <= today, db = pb.dueDate <= today; return da === db ? (pa.streak || 0) - (pb.streak || 0) : da ? -1 : 1; })
-      .slice(0, 8);
+    const weak = genTenseItems(VERBS).filter((q) => { const p = items[q.id]; return p && (p.timesWrong || 0) > 0 && (p.streak || 0) < MASTER_STREAK; })
+      .sort((a, b) => { const pa = items[a.id], pb = items[b.id]; const da = pa.dueDate <= today, db = pb.dueDate <= today; return da === db ? (pa.streak || 0) - (pb.streak || 0) : da ? -1 : 1; });
     launchSession(weak, { kind: "weakTables", returnScreen: "ref" });
   }
   function relaunch(cfg) {
@@ -696,10 +726,11 @@ function App() {
     const items = Object.assign({}, (progress && progress.items) || {});
     const prev = items[item.id] || { streak: 0, timesCorrect: 0, timesWrong: 0 };
     const streak = ok ? (prev.streak || 0) + 1 : 0;
-    items[item.id] = { streak, dueDate: addDays(dueDays(streak)), lastSeen: todayStr(), timesCorrect: prev.timesCorrect + (ok ? 1 : 0), timesWrong: prev.timesWrong + (ok ? 0 : 1) };
+    items[item.id] = { streak, dueDate: addDays(dueDays(streak)), lastSeen: todayStr(), timesCorrect: (prev.timesCorrect || 0) + (ok ? 1 : 0), timesWrong: (prev.timesWrong || 0) + (ok ? 0 : 1) };
     save(Object.assign({}, progress, { items }));
   }
   function next() { if (idx + 1 < session.length) { setIdx(idx + 1); setAnswer(""); setRevealed(false); setFeedback(null); } else finish(); }
+  function skipCurrent() { if (idx + 1 < session.length) { setIdx(idx + 1); setAnswer(""); setRevealed(false); setFeedback(null); } else finish(); }
   function finish() {
     const correct = results.filter((r) => r.correct).length;
     const stats = Object.assign({}, progress.stats), last = stats.lastSessionDate, today = todayStr();
@@ -708,6 +739,7 @@ function App() {
     save(Object.assign({}, progress, { stats })); setScreen("done");
   }
   function setLength(n) { save(Object.assign({}, progress, { settings: Object.assign({}, progress.settings, { length: n }) })); }
+  function toggleAudio() { save(Object.assign({}, progress, { settings: Object.assign({}, progress.settings, { noAudio: !(progress.settings && progress.settings.noAudio) }) })); }
   async function resetAll() { if (!window.confirm("Effacer toute votre progression et recommencer à zéro ?")) return; await save(fresh()); setScreen("home"); }
 
   useEffect(() => {
@@ -717,7 +749,8 @@ function App() {
   if (loading) return (<div className="atelier-root"><div className="loading">Chargement de votre atelier…</div></div>);
 
   let body = null;
-  if (screen === "home") body = (<Home counts={counts()} conj={conjStats()} stats={progress.stats} settings={progress.settings} focus={focus} setFocus={setFocus} onStart={start} onReview={() => start({ mode: "review", focusCat: "all" })} onLength={setLength} onReset={resetAll} onOpenRef={() => setScreen("ref")} onOpenCours={() => setScreen("cours")} />);
+  if (screen === "home") { const errs = errorItems(); body = (<Home counts={counts()} conj={conjStats()} stats={progress.stats} settings={progress.settings} focus={focus} setFocus={setFocus} onStart={start} errorCount={errs.length} onReview={() => startItems(errs, "home")} onLength={setLength} onToggleAudio={toggleAudio} onReset={resetAll} onOpenRef={() => setScreen("ref")} onOpenCours={() => setScreen("cours")} onOpenRules={() => setScreen("rules")} />); }
+  else if (screen === "rules") body = (<RulesScreen errItems={errorItems()} onBack={() => setScreen("home")} />);
   else if (screen === "cours") body = (<CoursHome onBack={() => setScreen("home")} onOpen={(id) => { setLessonId(id); setScreen("lesson"); }} />);
   else if (screen === "lesson") body = (<LessonScreen lesson={LESSONS.find((l) => l.id === lessonId)} onBack={() => setScreen("cours")} onPractice={(cat) => start({ focusCat: cat, returnScreen: "lesson" })} />);
   else if (screen === "ref") body = (<ConjHome conj={conjStats()} onBack={() => setScreen("home")} onOpenVerb={(inf) => { setVerbInf(inf); setScreen("verb"); }} onReview={() => startWeakTables()} />);
@@ -726,7 +759,7 @@ function App() {
     if (v) DRILL_TENSES.forEach((t) => { const p = progress.items["vt:" + v.inf + ":" + t]; ts[t] = (p && p.streak) || 0; });
     body = (<VerbScreen v={v} conj={conjStats()} tenseStreak={ts} onBack={() => setScreen("ref")} onExercise={() => startVerbTables(verbInf)} />);
   }
-  else if (screen === "session" && current) body = (<Session item={current} index={idx} total={session.length} answer={answer} setAnswer={setAnswer} revealed={revealed} feedback={feedback} onCheck={check} onNext={next} inputRef={inputRef} speech={speech} />);
+  else if (screen === "session" && current) body = (<Session item={current} index={idx} total={session.length} answer={answer} setAnswer={setAnswer} revealed={revealed} feedback={feedback} onCheck={check} onNext={next} onSkip={skipCurrent} inputRef={inputRef} speech={speech} />);
   else if (screen === "done") {
     const ret = (lastSession && lastSession.returnScreen) || "home";
     const backLabel = ret === "home" ? "Terminer" : (ret === "ref" || ret === "verb") ? "Retour aux tableaux" : "Retour au cours";
@@ -740,7 +773,7 @@ function Stat({ value, label, accent }) {
   return (<div className={"stat" + (accent ? " stat-accent" : "")}><span className="stat-value">{value}</span><span className="stat-label">{label}</span></div>);
 }
 
-function Home({ counts, conj, stats, settings, focus, setFocus, onStart, onReview, onLength, onReset, onOpenRef, onOpenCours }) {
+function Home({ counts, conj, stats, settings, focus, setFocus, onStart, errorCount, onReview, onLength, onToggleAudio, onReset, onOpenRef, onOpenCours, onOpenRules }) {
   const streak = stats.streak || 0;
   const pct = counts.total ? Math.round((counts.mastered / counts.total) * 100) : 0;
   return (
@@ -757,7 +790,7 @@ function Home({ counts, conj, stats, settings, focus, setFocus, onStart, onRevie
           {CATS.map((c) => (<button key={c} className={"chip" + (focus === c ? " chip-on" : "")} onClick={() => setFocus(c)}>{CAT_LABEL[c]}</button>))}
         </div>
         <button className="btn-primary" onClick={() => onStart()}>Commencer la séance du jour</button>
-        {counts.reviewable > 0 && (<button className="link-review" onClick={onReview}>Réviser mes erreurs ({counts.reviewable})</button>)}
+        {errorCount > 0 && (<button className="link-review" onClick={onReview}>Réviser mes erreurs ({errorCount})</button>)}
       </div>
       <button className="btn-zone zone-cours" onClick={onOpenCours}>
         <span className="zone-label">Cours</span>
@@ -769,10 +802,15 @@ function Home({ counts, conj, stats, settings, focus, setFocus, onStart, onRevie
         <span className="zone-sub">Tableaux des verbes, emploi des temps et exercices</span>
         <span className="zone-meta">{conj.mastered} / {conj.total} tableaux acquis</span>
       </button>
+      <button className="btn-zone zone-rules" onClick={onOpenRules}>
+        <span className="zone-label">Mémo des règles</span>
+        <span className="zone-sub">Toutes les règles des exercices, à faire défiler</span>
+        <span className="zone-meta">{errorCount > 0 ? errorCount + (errorCount > 1 ? " règles à revoir" : " règle à revoir") : "révision libre"}</span>
+      </button>
       <div className="stats-row">
         <Stat value={streak} label={streak > 1 ? "jours de suite" : "jour"} />
         <Stat value={counts.mastered} label="acquis" />
-        <Stat value={counts.reviewable} label="à revoir" accent />
+        <Stat value={errorCount} label="à revoir" accent />
       </div>
       <div className="progress-cats">
         {CATS.map((c) => { const pc = counts.perCat[c]; const p = pc.total ? Math.round((pc.mastered / pc.total) * 100) : 0; return (
@@ -786,6 +824,11 @@ function Home({ counts, conj, stats, settings, focus, setFocus, onStart, onRevie
         <span className="settings-label">Longueur :</span>
         <div className="seg">{[6, 8, 12].map((n) => (<button key={n} className={"seg-btn" + (settings.length === n ? " seg-on" : "")} onClick={() => onLength(n)}>{n}</button>))}</div>
         <span className="settings-hint">questions / séance</span>
+      </div>
+      <div className="settings-row">
+        <span className="settings-label">Audio :</span>
+        <button className={"toggle-audio" + (settings.noAudio ? " toggle-on" : "")} onClick={onToggleAudio}>{settings.noAudio ? "🔇 Sans dictées" : "🔊 Avec dictées"}</button>
+        <span className="settings-hint">{settings.noAudio ? "aucun son requis" : "écoute nécessaire"}</span>
       </div>
       <div className="home-foot">
         <span>Progression : {pct}%</span>
@@ -1003,7 +1046,7 @@ function DicteeReview({ grade, sentence }) {
   );
 }
 
-function Session({ item, index, total, answer, setAnswer, revealed, feedback, onCheck, onNext, inputRef, speech }) {
+function Session({ item, index, total, answer, setAnswer, revealed, feedback, onCheck, onNext, onSkip, inputRef, speech }) {
   const [tvals, setTvals] = useState([]);
   useEffect(() => { setTvals([]); }, [item]);
 
@@ -1036,7 +1079,7 @@ function Session({ item, index, total, answer, setAnswer, revealed, feedback, on
               <button className="audio-btn" onClick={() => speech.speak(item.sentence, 0.9)} disabled={!speech.supported}>▶ Écouter</button>
               <button className="audio-btn audio-slow" onClick={() => speech.speak(item.sentence, 0.55)} disabled={!speech.supported}>🐢 Lentement</button>
             </div>
-            {!speech.supported && <span className="fallback-note">Lecture audio indisponible sur ce navigateur — la phrase s’affiche à la correction.</span>}
+            {!speech.supported && <span className="fallback-note">Lecture audio indisponible ici — vous pouvez « Passer » cette dictée plus bas.</span>}
           </div>
         )}
 
@@ -1063,7 +1106,10 @@ function Session({ item, index, total, answer, setAnswer, revealed, feedback, on
       {isDictee && !revealed && (
         <div className="saisie-wrap saisie-dictee">
           <textarea ref={inputRef} className="dictee-input" rows={2} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Écrivez la phrase entendue" autoComplete="off" spellCheck={false} />
-          <button className="btn-primary btn-check" onClick={() => onCheck()}>Vérifier</button>
+          <div className="dictee-actions">
+            <button className="btn-primary btn-check" onClick={() => onCheck()}>Vérifier</button>
+            <button className="btn-skip" onClick={onSkip}>Passer — je ne peux pas écouter</button>
+          </div>
         </div>
       )}
 
@@ -1140,6 +1186,65 @@ function Done({ results, stats, onHome, onAgain, onDrillItems, backLabel }) {
       <div className="done-actions">
         <button className="btn-primary" onClick={onAgain}>Nouvelle séance</button>
         <button className="btn-ghost" onClick={onHome}>{backLabel}</button>
+      </div>
+    </div>
+  );
+}
+
+function RulesScreen({ errItems, onBack }) {
+  const errIds = {}; errItems.forEach((i) => (errIds[i.id] = true));
+  const exampleOf = (q) => (q.context ? q.context.replace("___", "…") : q.sentence || q.text || "");
+  const groups = CATS.map((cat) => ({ cat, rules: BANK.filter((q) => q.cat === cat && q.rule).map((q) => ({ id: q.id, rule: q.rule, ex: exampleOf(q), err: !!errIds[q.id] })) })).filter((g) => g.rules.length);
+  const errCount = Object.keys(errIds).filter((id) => BANK_IDS.has(id)).length;
+  const grp = (v) => (v === 1 ? "1er groupe" : v === 2 ? "2e groupe" : "3e groupe");
+  return (
+    <div className="screen">
+      <button className="back" onClick={onBack}>← Accueil</button>
+      <header className="masthead"><span className="eyebrow">Mémo complet</span><h1 className="logo-sm">Tout pour réviser</h1></header>
+      <p className="verb-hint">Le récapitulatif complet, à faire défiler : les règles des exercices, l’emploi de chaque temps, les particularités des verbes et les astuces des cours.{errCount > 0 ? " Ce que vous avez raté est signalé en rouge." : ""}</p>
+
+      {groups.map((g) => (
+        <div key={g.cat} className="rule-group">
+          <div className="rule-group-head"><span className={"dot dot-" + g.cat}></span>Règles — {CAT_LABEL[g.cat]}</div>
+          {g.rules.map((r) => (
+            <div key={r.id} className={"rule-card" + (r.err ? " rule-err" : "")}>
+              {r.ex && <p className="rule-ex">« {r.ex} »</p>}
+              <p className="rule-text">{r.rule}</p>
+              {r.err && <span className="rule-badge">à revoir</span>}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      <div className="rule-group">
+        <div className="rule-group-head"><span className="dot dot-conjugaison"></span>Emploi des temps</div>
+        {DISPLAY_TENSES.map((t) => { const u = TENSE_USAGE[t]; if (!u) return null; return (
+          <div key={t} className="rule-card">
+            <p className="rule-sub">{TENSE_LABEL[t]}</p>
+            <p className="rule-text">{u.usage}</p>
+            <ul className="rule-ex-list">{u.ex.map((e, i) => (<li key={i}>{e}</li>))}</ul>
+          </div>
+        ); })}
+      </div>
+
+      <div className="rule-group">
+        <div className="rule-group-head"><span className="dot dot-conjugaison"></span>Particularités des verbes</div>
+        {VERBS.map((v) => (
+          <div key={v.inf} className="rule-card">
+            <p className="rule-sub">{v.inf}<span className="rule-tag">{grp(v.group)} · participe : {v.participe}</span></p>
+            <p className="rule-text">{v.note}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="rule-group">
+        <div className="rule-group-head"><span className="dot dot-accord"></span>Astuces des cours</div>
+        {LESSONS.filter((l) => l.astuce).map((l) => (
+          <div key={l.id} className="rule-card">
+            <p className="rule-sub">{l.title}</p>
+            <p className="rule-text">{l.astuce}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
