@@ -1,39 +1,56 @@
 /* ============================================================
-   app.js — Logique de The Workbook (transpilé par Babel via index.html)
+   app.js — Logique de L'Atelier (transpilé par Babel via index.html)
    Chargé APRÈS data.js. Utilise BANK, VERBS, LESSONS, PRON,
-   BE_PRES, BE_PAST, HAVE_PRES, TENSE_LABEL, TENSE_USAGE,
-   DISPLAY_TENSES, DRILL_TENSES — définis globalement dans data.js.
+   TENSE_LABEL, TENSE_USAGE, DISPLAY_TENSES, DRILL_TENSES, AUX_PRES…
+   qui sont définis globalement dans data.js.
    ============================================================ */
 
 const { useState, useEffect, useRef } = React;
 
 /* Stockage : localStorage avec repli en mémoire.
-   Clé propre à l'app anglaise pour ne PAS écraser L'Atelier
-   (les deux partagent la même origine GitHub Pages). */
-const STORE_KEY = "workbook_en_v1";
+   → Fonctionne en local, sur GitHub Pages, et dans un aperçu sans localStorage. */
 const __mem = {};
 const storage = {
   async get(k) { try { const v = localStorage.getItem(k); return v == null ? null : { value: v }; } catch (e) { return __mem[k] != null ? { value: __mem[k] } : null; } },
   async set(k, v) { try { localStorage.setItem(k, v); } catch (e) { __mem[k] = v; } return { value: v }; },
 };
 
-/* =================== MOTEUR DE CONJUGAISON (anglais) =================== */
-/* Chaque verbe = base + 4 formes (third / past / pp / ing).
-   Les temps composés se construisent avec les auxiliaires be / have. */
-function getConj(v) {
-  const gen = {
-    present: [v.base, v.base, v.third, v.base, v.base, v.base],
-    past: [v.past, v.past, v.past, v.past, v.past, v.past],
-    presentCont: BE_PRES.map((a) => a + " " + v.ing),
-    pastCont: BE_PAST.map((a) => a + " " + v.ing),
-    presentPerfect: HAVE_PRES.map((a) => a + " " + v.pp),
-    future: PRON.map(() => "will " + v.base),
-    conditional: PRON.map(() => "would " + v.base),
+
+/* =================== MOTEUR DE CONJUGAISON =================== */
+const ER_END = { present: ["e", "es", "e", "ons", "ez", "ent"], imparfait: ["ais", "ais", "ait", "ions", "iez", "aient"], passeSimple: ["ai", "as", "a", "âmes", "âtes", "èrent"], subjonctif: ["e", "es", "e", "ions", "iez", "ent"] };
+const IR_END = { present: ["is", "is", "it", "issons", "issez", "issent"], imparfait: ["issais", "issais", "issait", "issions", "issiez", "issaient"], passeSimple: ["is", "is", "it", "îmes", "îtes", "irent"], subjonctif: ["isse", "isses", "isse", "issions", "issiez", "issent"] };
+const FUT_END = ["ai", "as", "a", "ons", "ez", "ont"];
+const COND_END = ["ais", "ais", "ait", "ions", "iez", "aient"];
+
+function conjugateRegular(v) {
+  const inf = v.inf, s = inf.slice(0, -2);
+  const E = v.reg === "er" ? ER_END : IR_END;
+  const imp = v.reg === "er" ? [s + "e", s + "ons", s + "ez"] : [s + "is", s + "issons", s + "issez"];
+  return {
+    present: E.present.map((e) => s + e), imparfait: E.imparfait.map((e) => s + e),
+    passeSimple: E.passeSimple.map((e) => s + e), futur: FUT_END.map((e) => inf + e),
+    conditionnel: COND_END.map((e) => inf + e), subjonctif: E.subjonctif.map((e) => s + e), imperatif: imp,
   };
-  return v.forms ? Object.assign(gen, v.forms) : gen;
 }
-function lineFor(tenseKey, person, form) { return PRON[person] + " " + form; }
-function rowFor(tenseKey, person, form) { return { pre: PRON[person], answer: form }; }
+function getConj(v) {
+  const base = v.reg ? conjugateRegular(v) : v.forms;
+  return Object.assign({}, base, { passeCompose: AUX_PRES[v.aux].map((a) => a + " " + v.participe) });
+}
+const startsVowel = (s) => /^[aàâeéèêiîoôuûyœh]/i.test(s);
+function lineFor(tenseKey, person, form) {
+  if (tenseKey === "imperatif") return PRON_IMP[person] + " " + form;
+  const pron = tenseKey === "subjonctif" ? PRON_SUBJ[person] : PRON[person];
+  if (pron === "je") return (startsVowel(form) ? "j’" : "je ") + form;
+  if (pron === "que je") return (startsVowel(form) ? "que j’" : "que je ") + form;
+  return pron + " " + form;
+}
+function rowFor(tenseKey, person, form) {
+  if (tenseKey === "imperatif") return { pre: PRON_IMP[person], glue: false, answer: form };
+  const pron = tenseKey === "subjonctif" ? PRON_SUBJ[person] : PRON[person];
+  if (pron === "je") return { pre: startsVowel(form) ? "j’" : "je", glue: startsVowel(form), answer: form };
+  if (pron === "que je") return { pre: startsVowel(form) ? "que j’" : "que je", glue: startsVowel(form), answer: form };
+  return { pre: pron, glue: false, answer: form };
+}
 function genTenseItems(verbs) {
   const out = [];
   verbs.forEach((v) => {
@@ -41,7 +58,7 @@ function genTenseItems(verbs) {
     DRILL_TENSES.forEach((t) => {
       const forms = c[t];
       if (!forms) return;
-      out.push({ id: "vt:" + v.base + ":" + t, conj: true, tensefill: true, cat: "verbs", verb: v.base, tense: t, prompt: "« " + v.base + " » — " + TENSE_LABEL[t], rows: forms.map((f, p) => rowFor(t, p, f)), rule: v.note });
+      out.push({ id: "vt:" + v.inf + ":" + t, conj: true, tensefill: true, cat: "conjugaison", verb: v.inf, tense: t, prompt: "« " + v.inf + " » — " + TENSE_LABEL[t], rows: forms.map((f, p) => rowFor(t, p, f)), rule: v.note });
     });
   });
   return out;
@@ -55,11 +72,16 @@ const DEFAULT_LENGTH = 8;
 const BANK_IDS = new Set(BANK.map((q) => q.id));
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
-const CAT_LABEL = { grammar: "Grammaire", verbs: "Verbes", spelling: "Orthographe", confused: "Pièges" };
-const CATS = ["grammar", "verbs", "spelling", "confused"];
+const CAT_LABEL = { accord: "Accords", conjugaison: "Conjugaison", orthographe: "Orthographe", message: "Messages" };
+const CATS = ["accord", "conjugaison", "orthographe", "message"];
 
 const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ").replace(/[’']/g, "’");
+const stripAccents = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 function isCorrectSaisie(input, item) { return [item.answer].concat(item.accept || []).map(norm).includes(norm(input)); }
+function accentOnlyMiss(input, item) {
+  const a = stripAccents(norm(input));
+  return [item.answer].concat(item.accept || []).map((x) => stripAccents(norm(x))).includes(a);
+}
 function tokenizeWords(s) { return norm(s).split(" ").map((w) => w.replace(/^[«»"“”().,;:!?…]+|[«»"“”().,;:!?…]+$/g, "")).filter(Boolean); }
 function gradeDictee(input, target) {
   const t = tokenizeWords(target), u = tokenizeWords(input), n = Math.max(t.length, u.length), words = [];
@@ -82,8 +104,8 @@ function useSpeech() {
   const speak = (text, rate = 0.9) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text); u.lang = "en-US"; u.rate = rate;
-    const v = window.speechSynthesis.getVoices().find((x) => x.lang && x.lang.toLowerCase().startsWith("en"));
+    const u = new SpeechSynthesisUtterance(text); u.lang = "fr-FR"; u.rate = rate;
+    const v = window.speechSynthesis.getVoices().find((x) => x.lang && x.lang.toLowerCase().startsWith("fr"));
     if (v) u.voice = v;
     window.speechSynthesis.speak(u);
   };
@@ -93,6 +115,7 @@ function useSpeech() {
 /* ====================================================================== */
 function App() {
   const [progress, setProgress] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [screen, setScreen] = useState("home");
   const [session, setSession] = useState([]);
@@ -111,7 +134,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await storage.get(STORE_KEY);
+        const r = await storage.get("progress");
         const data = r && r.value ? JSON.parse(r.value) : null;
         setProgress(data ? withDefaults(data) : fresh());
       } catch (e) { setProgress(fresh()); } finally { setLoading(false); }
@@ -129,7 +152,7 @@ function App() {
     Object.keys(raw).forEach((k) => { items[k] = migrateItem(raw[k]); });
     return { items, stats: Object.assign({}, emptyStats(), d.stats || {}), settings: Object.assign({ length: DEFAULT_LENGTH, noAudio: false }, d.settings || {}) };
   }
-  async function save(next) { setProgress(next); try { await storage.set(STORE_KEY, JSON.stringify(next)); } catch (e) {} }
+  async function save(next) { setProgress(next); try { await storage.set("progress", JSON.stringify(next)); } catch (e) {} }
 
   function counts() {
     const items = (progress && progress.items) || {};
@@ -162,7 +185,7 @@ function App() {
     VERBS.forEach((v) => {
       const c = getConj(v); let t = 0;
       DRILL_TENSES.forEach((k) => { if (c[k]) t += 1; });
-      perVerb[v.base] = { total: t, mastered: 0 }; total += t;
+      perVerb[v.inf] = { total: t, mastered: 0 }; total += t;
     });
     Object.keys(items).forEach((id) => {
       if (id.slice(0, 3) !== "vt:") return;
@@ -214,7 +237,7 @@ function App() {
   }
   function startItems(its, returnScreen) { launchSession(shuffle(its), { kind: "items", items: its, returnScreen: returnScreen || "home" }); }
   function startVerbTables(inf) {
-    const v = VERBS.find((x) => x.base === inf); if (!v) return;
+    const v = VERBS.find((x) => x.inf === inf); if (!v) return;
     launchSession(genTenseItems([v]), { kind: "verbTables", verbInf: inf, returnScreen: "verb" });
   }
   function startWeakTables() {
@@ -243,12 +266,13 @@ function App() {
       ok = choice.type === "none" ? !!item.errorFree : (!item.errorFree && choice.index === target);
       fb = { ok, kind: ok ? "ok" : "ko", sms: { target, picked: choice } };
     } else if (item.tensefill) {
-      const table = item.rows.map((r, i) => { const val = (choice && choice[i]) ? choice[i] : ""; const okc = norm(val) === norm(r.answer); return Object.assign({}, r, { val, ok: okc }); });
+      const table = item.rows.map((r, i) => { const val = (choice && choice[i]) ? choice[i] : ""; const okc = norm(val) === norm(r.answer); const near = !okc && stripAccents(norm(val)) === stripAccents(norm(r.answer)); return Object.assign({}, r, { val, ok: okc, near }); });
       ok = table.every((c) => c.ok);
       fb = { ok, kind: ok ? "ok" : "ko", table };
     } else {
       ok = isCorrectSaisie(answer, item);
-      fb = { ok, kind: ok ? "ok" : "ko" };
+      const near = !ok && accentOnlyMiss(answer, item);
+      fb = { ok, kind: ok ? "ok" : near ? "near" : "ko" };
     }
     setFeedback(fb); setRevealed(true);
     setResults((r) => r.concat([{ item, correct: ok }]));
@@ -275,18 +299,17 @@ function App() {
     if (screen === "session" && current && (current.type === "saisie" || current.type === "dictee") && !revealed && inputRef.current) inputRef.current.focus();
   }, [idx, screen, revealed, current]);
 
-  if (loading) return (<div className="atelier-root"><div className="loading">Chargement…</div></div>);
+  if (loading) return (<div className="atelier-root"><div className="loading">Chargement de votre atelier…</div></div>);
 
   let body = null;
   if (screen === "home") { const errs = errorItems(); body = (<Home counts={counts()} conj={conjStats()} stats={progress.stats} settings={progress.settings} focus={focus} setFocus={setFocus} onStart={start} errorCount={errs.length} onReview={() => startItems(errs, "home")} onLength={setLength} onToggleAudio={toggleAudio} onReset={resetAll} onOpenRef={() => setScreen("ref")} onOpenCours={() => setScreen("cours")} onOpenRules={() => setScreen("rules")} />); }
   else if (screen === "rules") body = (<RulesScreen errItems={errorItems()} onBack={() => setScreen("home")} />);
   else if (screen === "cours") body = (<CoursHome onBack={() => setScreen("home")} onOpen={(id) => { setLessonId(id); setScreen("lesson"); }} />);
   else if (screen === "lesson") body = (<LessonScreen lesson={LESSONS.find((l) => l.id === lessonId)} onBack={() => setScreen("cours")} onPractice={(cat) => start({ focusCat: cat, returnScreen: "lesson" })} />);
-  else if (screen === "ref") body = (<ConjHome conj={conjStats()} onBack={() => setScreen("home")} onOpenVerb={(inf) => { setVerbInf(inf); setScreen("verb"); }} onReview={() => startWeakTables()} onOpenIrregular={() => setScreen("irregular")} />);
-  else if (screen === "irregular") body = (<IrregularScreen onBack={() => setScreen("ref")} />);
+  else if (screen === "ref") body = (<ConjHome conj={conjStats()} onBack={() => setScreen("home")} onOpenVerb={(inf) => { setVerbInf(inf); setScreen("verb"); }} onReview={() => startWeakTables()} />);
   else if (screen === "verb") {
-    const v = VERBS.find((x) => x.base === verbInf); const ts = {};
-    if (v) DRILL_TENSES.forEach((t) => { const p = progress.items["vt:" + v.base + ":" + t]; ts[t] = (p && p.streak) || 0; });
+    const v = VERBS.find((x) => x.inf === verbInf); const ts = {};
+    if (v) DRILL_TENSES.forEach((t) => { const p = progress.items["vt:" + v.inf + ":" + t]; ts[t] = (p && p.streak) || 0; });
     body = (<VerbScreen v={v} conj={conjStats()} tenseStreak={ts} onBack={() => setScreen("ref")} onExercise={() => startVerbTables(verbInf)} />);
   }
   else if (screen === "session" && current) body = (<Session item={current} index={idx} total={session.length} answer={answer} setAnswer={setAnswer} revealed={revealed} feedback={feedback} onCheck={check} onNext={next} onSkip={skipCurrent} inputRef={inputRef} speech={speech} />);
@@ -296,42 +319,31 @@ function App() {
     body = (<Done results={results} stats={progress.stats} onHome={() => setScreen(ret)} onAgain={() => relaunch(lastSession)} onDrillItems={(its) => startItems(its, "home")} backLabel={backLabel} />);
   }
 
-  return (<div className="atelier-root">{body}</div>);
+  return (
+    <div className="atelier-root">
+      <button className="menu-btn" aria-label="Ouvrir le menu" onClick={() => setMenuOpen(true)}><span></span><span></span><span></span></button>
+      {menuOpen && <AppMenu onClose={() => setMenuOpen(false)} />}
+      {body}
+    </div>
+  );
 }
-
 /* ============================== ÉCRANS ================================ */
 function Stat({ value, label, accent }) {
   return (<div className={"stat" + (accent ? " stat-accent" : "")}><span className="stat-value">{value}</span><span className="stat-label">{label}</span></div>);
 }
 
 function Home({ counts, conj, stats, settings, focus, setFocus, onStart, errorCount, onReview, onLength, onToggleAudio, onReset, onOpenRef, onOpenCours, onOpenRules }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const streak = stats.streak || 0;
   const pct = counts.total ? Math.round((counts.mastered / counts.total) * 100) : 0;
   return (
     <div className="screen">
-      <button className="menu-btn" onClick={() => setMenuOpen(true)} aria-label="Ouvrir le menu">
-        <span></span><span></span><span></span>
-      </button>
-      {menuOpen && (
-        <div className="menu-overlay" onClick={() => setMenuOpen(false)}>
-          <nav className="menu-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="menu-head"><span className="menu-title">Mes applis</span><button className="menu-close" onClick={() => setMenuOpen(false)} aria-label="Fermer">×</button></div>
-            {APPS.map((a, i) => a.href ? (
-              <a key={i} className="menu-item" href={a.href}><span className="menu-item-name">{a.name}</span>{a.note && <span className="menu-item-note">{a.note}</span>}</a>
-            ) : (
-              <div key={i} className="menu-item menu-item-soon"><span className="menu-item-name">{a.name}</span><span className="menu-item-note">{a.note || "à venir"}</span></div>
-            ))}
-          </nav>
-        </div>
-      )}
       <header className="masthead">
-        <span className="eyebrow">Cahier d’anglais</span>
-        <h1 className="logo">The Workbook</h1>
+        <span className="eyebrow">Cahier d’exercices</span>
+        <h1 className="logo">L’Atelier</h1>
       </header>
       <div className="paper card-intro">
         <h2 className="greet">On s’y met ?</h2>
-        <p className="lede">Quelques questions ciblées pour progresser en anglais. Choisissez un thème, ou laissez « Tout » pour un mélange.</p>
+        <p className="lede">Quelques questions ciblées sur vos points faibles. Choisissez un thème, ou laissez « Tout » pour un mélange.</p>
         <div className="focus-row">
           <button className={"chip" + (focus === "all" ? " chip-on" : "")} onClick={() => setFocus("all")}>Tout</button>
           {CATS.map((c) => (<button key={c} className={"chip" + (focus === c ? " chip-on" : "")} onClick={() => setFocus(c)}>{CAT_LABEL[c]}</button>))}
@@ -345,8 +357,8 @@ function Home({ counts, conj, stats, settings, focus, setFocus, onStart, errorCo
         <span className="zone-meta">{LESSONS.length} leçons</span>
       </button>
       <button className="btn-zone" onClick={onOpenRef}>
-        <span className="zone-label">Verbes &amp; temps</span>
-        <span className="zone-sub">Tableaux des verbes anglais, emploi des temps et exercices</span>
+        <span className="zone-label">Conjugaison</span>
+        <span className="zone-sub">Tableaux des verbes, emploi des temps et exercices</span>
         <span className="zone-meta">{conj.mastered} / {conj.total} tableaux acquis</span>
       </button>
       <button className="btn-zone zone-rules" onClick={onOpenRules}>
@@ -441,30 +453,25 @@ function LessonScreen({ lesson, onBack, onPractice }) {
   );
 }
 
-function ConjHome({ conj, onBack, onOpenVerb, onReview, onOpenIrregular }) {
+function ConjHome({ conj, onBack, onOpenVerb, onReview }) {
   const groups = [
-    { title: "Verbes réguliers", note: "type « work / play »", verbs: VERBS.filter((v) => v.group === 1) },
-    { title: "Verbes irréguliers", note: "à mémoriser", verbs: VERBS.filter((v) => v.group === 2) },
-    { title: "Auxiliaires", note: "be, have, do", verbs: VERBS.filter((v) => v.group === 3) },
+    { title: "1er groupe (-er)", note: "réguliers + particularités", verbs: VERBS.filter((v) => v.group === 1) },
+    { title: "2e groupe (-ir)", note: "type « finir »", verbs: VERBS.filter((v) => v.group === 2) },
+    { title: "3e groupe", note: "irréguliers fréquents", verbs: VERBS.filter((v) => v.group === 3) },
   ];
   return (
     <div className="screen">
       <button className="back" onClick={onBack}>← Accueil</button>
-      <header className="masthead"><span className="eyebrow">Verbes &amp; temps</span><h1 className="logo-sm">Tableaux des verbes anglais</h1></header>
-      <p className="verb-hint">Ouvrez un verbe pour réviser ses temps et savoir quand les employer. Pour vous exercer, vous compléterez un tableau entier (les six personnes) — il n’est validé que si toutes les cases sont justes.</p>
-      <button className="btn-zone zone-irr" onClick={onOpenIrregular}>
-        <span className="zone-label">Verbes irréguliers</span>
-        <span className="zone-sub">Le tableau complet : base · prétérit · participe passé + traduction</span>
-        <span className="zone-meta">{IRREGULARS.length} verbes</span>
-      </button>
+      <header className="masthead"><span className="eyebrow">Conjugaison</span><h1 className="logo-sm">Tableaux des verbes</h1></header>
+      <p className="verb-hint">Ouvrez un verbe pour réviser ses tableaux et l’emploi de chaque temps. Pour vous exercer, vous compléterez un tableau entier — il est validé seulement si toutes les cases sont justes.</p>
       {conj.reviewable > 0 && (<button className="btn-primary lesson-practice" style={{ marginTop: 0, marginBottom: 18 }} onClick={onReview}>Réviser les tableaux à revoir ({conj.reviewable})</button>)}
       {groups.map((g, i) => (
         <div key={i} className="vgroup">
           <div className="vgroup-head"><span className="vgroup-title">{g.title}</span><span className="vgroup-note">{g.note}</span></div>
           <div className="vlist">
-            {g.verbs.map((v) => { const pv = conj.perVerb[v.base] || { total: 0, mastered: 0 }; const p = pv.total ? Math.round((pv.mastered / pv.total) * 100) : 0; return (
-              <button key={v.base} className="vrow" onClick={() => onOpenVerb(v.base)}>
-                <span className="vrow-inf">{v.base}</span>
+            {g.verbs.map((v) => { const pv = conj.perVerb[v.inf] || { total: 0, mastered: 0 }; const p = pv.total ? Math.round((pv.mastered / pv.total) * 100) : 0; return (
+              <button key={v.inf} className="vrow" onClick={() => onOpenVerb(v.inf)}>
+                <span className="vrow-inf">{v.inf}</span>
                 <span className="vrow-bar"><span style={{ width: p + "%" }}></span></span>
                 <span className="vrow-frac">{pv.mastered}/{pv.total}</span>
                 <span className="vrow-arrow">→</span>
@@ -481,19 +488,19 @@ function VerbScreen({ v, conj, tenseStreak, onBack, onExercise }) {
   const [openTense, setOpenTense] = useState(null);
   if (!v) return null;
   const c = getConj(v);
-  const groupLabel = v.group === 1 ? "Verbe régulier" : v.group === 3 ? "Auxiliaire" : "Verbe irrégulier";
-  const pastDisp = v.base === "be" ? "was / were" : v.past;
+  const groupLabel = v.group === 1 ? "1er groupe" : v.group === 2 ? "2e groupe" : "3e groupe";
   return (
     <div className="screen">
       <button className="back" onClick={onBack}>← Tableaux</button>
       <div className="verb-head">
-        <h1 className="verb-title">{v.base}</h1>
-        <span className="verb-group">{groupLabel} · {v.base} — {pastDisp} — {v.pp}</span>
+        <h1 className="verb-title">{v.inf}</h1>
+        <span className="verb-group">{groupLabel} · participe passé : {v.participe}</span>
       </div>
       {v.note && (<div className="paper verb-note-card"><p className="verb-note">{v.note}</p></div>)}
       <p className="verb-hint">Touchez le nom d’un temps pour voir quand l’employer, avec des exemples.</p>
       {DISPLAY_TENSES.map((t) => {
         const forms = c[t]; if (!forms) return null;
+        const isImp = t === "imperatif";
         const drilled = DRILL_TENSES.indexOf(t) >= 0;
         const acquired = drilled && (tenseStreak[t] || 0) >= MASTER_STREAK;
         const open = openTense === t;
@@ -510,10 +517,10 @@ function VerbScreen({ v, conj, tenseStreak, onBack, onExercise }) {
                 <ul className="ten-usage-ex">{u.ex.map((e, i) => (<li key={i}>{e}</li>))}</ul>
               </div>
             )}
-            <div className="ten-grid">
+            <div className={"ten-grid" + (isImp ? " ten-imp" : "")}>
               {forms.map((f, p) => (<div key={p} className="cline">{lineFor(t, p, f)}</div>))}
             </div>
-            {!drilled && (<div className="ten-foot">{t === "past" ? "Action passée. Se travaille dans les séances d’exercices." : "will / would + base : identique à toutes les personnes."}</div>)}
+            {t === "passeCompose" && (<div className="ten-foot">Auxiliaire « {v.aux} » au présent + participe passé. L’exercice porte sur les temps simples.</div>)}
           </div>
         );
       })}
@@ -521,55 +528,11 @@ function VerbScreen({ v, conj, tenseStreak, onBack, onExercise }) {
     </div>
   );
 }
-
-function IrregularScreen({ onBack }) {
-  const [info, setInfo] = useState(null);
-  const COLS = [
-    { key: "base", label: "Base", when: "La forme de base (l’infinitif sans « to »). On l’emploie au présent simple (I / you / we / they go), après « to » (to go), après les modaux (can / will / must go), dans les questions et négations avec do / does / did (Did you go ? — I don’t go) et à l’impératif (Go!)." },
-    { key: "past", label: "Prétérit", when: "Le passé simple : une action terminée dans le passé, souvent avec yesterday, last week, ago — « I went home yesterday ». (Attention : avec « did », on revient à la base : Did you go ?)" },
-    { key: "pp", label: "Participe passé", when: "S’emploie avec un auxiliaire : present perfect (have / has + pp — « I have gone »), past perfect (« had gone ») et le passif (« it was written »). Sert aussi d’adjectif (« a broken window »)." },
-  ];
-  const cur = info ? COLS.find((c) => c.key === info) : null;
-  return (
-    <div className="screen">
-      <button className="back" onClick={onBack}>← Tableaux</button>
-      <header className="masthead"><span className="eyebrow">Verbes irréguliers</span><h1 className="logo-sm">Base · prétérit · participe</h1></header>
-      <p className="verb-hint">Touchez l’en-tête d’une colonne (le « ? ») pour savoir quand employer cette forme. L’en-tête reste visible quand vous faites défiler.</p>
-      <div className="irr-table">
-        <div className="irr-head">
-          {COLS.map((c) => (
-            <button key={c.key} className={"irr-col-h" + (info === c.key ? " irr-col-on" : "")} onClick={() => setInfo(info === c.key ? null : c.key)}>
-              {c.label}<span className="irr-q">?</span>
-            </button>
-          ))}
-          <div className="irr-col-h irr-col-fr">Traduction</div>
-        </div>
-        {cur && (
-          <div className="irr-info">
-            <p className="irr-info-h">{cur.label}</p>
-            <p className="irr-info-p">{cur.when}</p>
-          </div>
-        )}
-        <div className="irr-body">
-          {IRREGULARS.map((v, i) => (
-            <div key={i} className="irr-row">
-              <span className="irr-cell irr-base">{v.base}</span>
-              <span className="irr-cell">{v.past}</span>
-              <span className="irr-cell">{v.pp}</span>
-              <span className="irr-cell irr-fr">{v.fr}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ===================== SÉANCE & COMPOSANTS DE QUESTION ================= */
 function renderContext(item, revealed) {
   const parts = (item.context || "").split("___");
   return (
-    <p className={"context" + (item.cat === "verbs" ? " context-conj" : "")}>
+    <p className={"context" + (item.cat === "conjugaison" ? " context-conj" : "")}>
       {parts[0]}
       {revealed ? <span className="blank-filled">{item.answer}</span> : <span className="blank">___</span>}
       {parts[1]}
@@ -582,7 +545,7 @@ function TenseFillBlock({ item, values, onChange, revealed, table, onEnter }) {
     <div className="tfill">
       {item.rows.map((r, i) => {
         const cell = table ? table[i] : null;
-        const cls = !revealed ? "" : cell.ok ? " tf-ok" : " tf-ko";
+        const cls = !revealed ? "" : cell.ok ? " tf-ok" : cell.near ? " tf-near" : " tf-ko";
         return (
           <div key={i} className="tfill-row">
             <span className="tfill-pre">{r.pre}</span>
@@ -685,7 +648,7 @@ function Session({ item, index, total, answer, setAnswer, revealed, feedback, on
 
         {isFill && (
           <React.Fragment>
-            <p className="table-instr">Complétez chaque ligne avec la forme complète (auxiliaire compris : « am working », « has gone »). « Entrée » valide.</p>
+            <p className="table-instr">Complétez tout le tableau, puis validez. « Entrée » valide.</p>
             <TenseFillBlock item={item} values={tvals} revealed={revealed} table={feedback && feedback.table} onEnter={submitFill}
               onChange={(i, val) => setTvals((p) => { const n = p.slice(); n[i] = val; return n; })} />
           </React.Fragment>
@@ -726,8 +689,8 @@ function Session({ item, index, total, answer, setAnswer, revealed, feedback, on
       {revealed && feedback && (
         <div className={"feedback fb-" + feedback.kind}>
           <p className="fb-head">
-            {feedback.kind === "ok" ? (isFill ? "Tableau validé !" : "Juste !") : isFill ? "À corriger" : "Pas tout à fait"}
-            {item.type === "saisie" && feedback.kind !== "ok" && (<span className="fb-answer"><s>{answer || "—"}</s>{item.answer}</span>)}
+            {feedback.kind === "ok" ? (isFill ? "Tableau validé !" : "Juste !") : feedback.kind === "near" ? "Presque — accent oublié" : isFill ? "À corriger" : "Pas tout à fait"}
+            {item.type === "saisie" && feedback.kind !== "ok" && (<span className="fb-answer">{feedback.kind === "near" ? "" : <s>{answer || "—"}</s>}{item.answer}</span>)}
           </p>
           {isDictee && feedback.dictee && <DicteeReview grade={feedback.dictee} sentence={item.sentence} />}
           {item.rule && <p className="fb-rule">{item.rule}</p>}
@@ -792,7 +755,7 @@ function RulesScreen({ errItems, onBack }) {
   const exampleOf = (q) => (q.context ? q.context.replace("___", "…") : q.sentence || q.text || "");
   const groups = CATS.map((cat) => ({ cat, rules: BANK.filter((q) => q.cat === cat && q.rule).map((q) => ({ id: q.id, rule: q.rule, ex: exampleOf(q), err: !!errIds[q.id] })) })).filter((g) => g.rules.length);
   const errCount = Object.keys(errIds).filter((id) => BANK_IDS.has(id)).length;
-  const grp = (g) => (g === 1 ? "régulier" : g === 3 ? "auxiliaire" : "irrégulier");
+  const grp = (v) => (v === 1 ? "1er groupe" : v === 2 ? "2e groupe" : "3e groupe");
   return (
     <div className="screen">
       <button className="back" onClick={onBack}>← Accueil</button>
@@ -813,7 +776,7 @@ function RulesScreen({ errItems, onBack }) {
       ))}
 
       <div className="rule-group">
-        <div className="rule-group-head"><span className="dot dot-verbs"></span>Emploi des temps</div>
+        <div className="rule-group-head"><span className="dot dot-conjugaison"></span>Emploi des temps</div>
         {DISPLAY_TENSES.map((t) => { const u = TENSE_USAGE[t]; if (!u) return null; return (
           <div key={t} className="rule-card">
             <p className="rule-sub">{TENSE_LABEL[t]}</p>
@@ -824,23 +787,52 @@ function RulesScreen({ errItems, onBack }) {
       </div>
 
       <div className="rule-group">
-        <div className="rule-group-head"><span className="dot dot-verbs"></span>Particularités des verbes</div>
+        <div className="rule-group-head"><span className="dot dot-conjugaison"></span>Particularités des verbes</div>
         {VERBS.map((v) => (
-          <div key={v.base} className="rule-card">
-            <p className="rule-sub">{v.base}<span className="rule-tag">{grp(v.group)} · prét. {v.base === "be" ? "was / were" : v.past} · pp {v.pp}</span></p>
+          <div key={v.inf} className="rule-card">
+            <p className="rule-sub">{v.inf}<span className="rule-tag">{grp(v.group)} · participe : {v.participe}</span></p>
             <p className="rule-text">{v.note}</p>
           </div>
         ))}
       </div>
 
       <div className="rule-group">
-        <div className="rule-group-head"><span className="dot dot-grammar"></span>Astuces des cours</div>
+        <div className="rule-group-head"><span className="dot dot-accord"></span>Astuces des cours</div>
         {LESSONS.filter((l) => l.astuce).map((l) => (
           <div key={l.id} className="rule-card">
             <p className="rule-sub">{l.title}</p>
             <p className="rule-text">{l.astuce}</p>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function AppMenu({ onClose }) {
+  const apps = [
+    { name: "L’Atelier", desc: "Français — orthographe & conjugaison", here: true },
+    { name: "CoachMuscu", desc: "Programme de musculation", href: "https://ricardospec.github.io/coachmuscu/" },
+    { name: "Anglais", desc: "À venir", soon: true },
+    { name: "Espagnol", desc: "À venir", soon: true },
+    { name: "Suivi du mémoire", desc: "À venir", soon: true },
+  ];
+  return (
+    <div className="menu-overlay" onClick={onClose}>
+      <div className="menu-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="menu-head">
+          <span className="menu-title">Mes applications</span>
+          <button className="menu-close" aria-label="Fermer" onClick={onClose}>×</button>
+        </div>
+        <div className="menu-list">
+          {apps.map((a, i) => {
+            const inner = (<span className="menu-item-text"><span className="menu-item-name">{a.name}</span><span className="menu-item-desc">{a.desc}</span></span>);
+            if (a.here) return (<div key={i} className="menu-item menu-here">{inner}<span className="menu-badge">ici</span></div>);
+            if (a.soon) return (<div key={i} className="menu-item menu-soon">{inner}</div>);
+            return (<a key={i} className="menu-item menu-link" href={a.href}>{inner}<span className="menu-arrow">→</span></a>);
+          })}
+        </div>
+        <p className="menu-foot">D’autres apps arriveront ici.</p>
       </div>
     </div>
   );
