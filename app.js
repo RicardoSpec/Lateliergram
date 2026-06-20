@@ -115,6 +115,7 @@ function useSpeech() {
 /* ====================================================================== */
 function App() {
   const [progress, setProgress] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [screen, setScreen] = useState("home");
   const [session, setSession] = useState([]);
@@ -318,7 +319,13 @@ function App() {
     body = (<Done results={results} stats={progress.stats} onHome={() => setScreen(ret)} onAgain={() => relaunch(lastSession)} onDrillItems={(its) => startItems(its, "home")} backLabel={backLabel} />);
   }
 
-  return (<div className="atelier-root">{body}</div>);
+  return (
+    <div className="atelier-root">
+      <button className="menu-btn" aria-label="Ouvrir le menu" onClick={() => setMenuOpen(true)}><span></span><span></span><span></span></button>
+      {menuOpen && <AppMenu onClose={() => setMenuOpen(false)} />}
+      {body}
+    </div>
+  );
 }
 /* ============================== ÉCRANS ================================ */
 function Stat({ value, label, accent }) {
@@ -797,6 +804,35 @@ function RulesScreen({ errItems, onBack }) {
             <p className="rule-text">{l.astuce}</p>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function AppMenu({ onClose }) {
+  const apps = [
+    { name: "L’Atelier", desc: "Français — orthographe & conjugaison", here: true },
+    { name: "CoachMuscu", desc: "Programme de musculation", href: "https://ricardospec.github.io/coachmuscu/" },
+    { name: "Anglais", desc: "À venir", soon: true },
+    { name: "Espagnol", desc: "À venir", soon: true },
+    { name: "Suivi du mémoire", desc: "À venir", soon: true },
+  ];
+  return (
+    <div className="menu-overlay" onClick={onClose}>
+      <div className="menu-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="menu-head">
+          <span className="menu-title">Mes applications</span>
+          <button className="menu-close" aria-label="Fermer" onClick={onClose}>×</button>
+        </div>
+        <div className="menu-list">
+          {apps.map((a, i) => {
+            const inner = (<span className="menu-item-text"><span className="menu-item-name">{a.name}</span><span className="menu-item-desc">{a.desc}</span></span>);
+            if (a.here) return (<div key={i} className="menu-item menu-here">{inner}<span className="menu-badge">ici</span></div>);
+            if (a.soon) return (<div key={i} className="menu-item menu-soon">{inner}</div>);
+            return (<a key={i} className="menu-item menu-link" href={a.href}>{inner}<span className="menu-arrow">→</span></a>);
+          })}
+        </div>
+        <p className="menu-foot">D’autres apps arriveront ici.</p>
       </div>
     </div>
   );
