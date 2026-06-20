@@ -16,8 +16,8 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="theme-color" content="#2C4C86" />
 
-<!-- Styles -->
-<link rel="stylesheet" href="style.css" />
+<!-- Styles (le ?v=2 force le navigateur à recharger la version à jour) -->
+<link rel="stylesheet" href="style.css?v=2" />
 
 <!-- React + Babel via CDN -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -29,9 +29,9 @@
 <noscript>Cette application nécessite JavaScript.</noscript>
 
 <!-- Données lourdes : BANK, VERBS, LESSONS, TENSE_USAGE… (script simple, pas de JSX) -->
-<script src="data.js"></script>
+<script src="data.js?v=2"></script>
 
 <!-- Logique + composants React + stockage (JSX transpilé par Babel) -->
-<script type="text/babel" data-presets="env,react" src="app.js"></script>
+<script type="text/babel" data-presets="env,react" src="app.js?v=2"></script>
 </body>
 </html>
