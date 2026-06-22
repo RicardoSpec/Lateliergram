@@ -813,6 +813,7 @@ function AppMenu({ onClose }) {
   const apps = [
     { name: "L’Atelier", desc: "Français — orthographe & conjugaison", here: true },
     { name: "CoachMuscu", desc: "Programme de musculation", href: "https://ricardospec.github.io/coachmuscu/" },
+    { name: "Budgétisation", desc: "Gestion du budget", href: "https://ricardospec.github.io/Budgetisation/" },
     { name: "Anglais", desc: "À venir", soon: true },
     { name: "Espagnol", desc: "À venir", soon: true },
     { name: "Suivi du mémoire", desc: "À venir", soon: true },
